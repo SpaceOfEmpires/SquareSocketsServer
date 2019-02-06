@@ -6,7 +6,7 @@ namespace SquareSocketsServer {
         private static ManualResetEvent endMainThread = new ManualResetEvent(false);
 
         static void Main(string[] args) {
-            Console.WriteLine("Client");
+            Console.WriteLine("Server");
             Server server = new Server();
             server.Start();
             endMainThread.WaitOne();
