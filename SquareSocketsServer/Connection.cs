@@ -4,62 +4,83 @@ using System.Net.Sockets;
 using System.Text;
 
 namespace SquareSocketsServer {
-    public class Connection {
-        public Socket Socket { get; private set; } // The socket connection to the client
-        private List<Connection> Connections { get; set; } // 
+    internal class Connection {
+        private Socket Socket { get; set; } // The socket this connection belongs to
 
-        public int Id { get; private set; } // Id used to distinguish between connections
+        private byte[] buffer; // Byte array used in figuring out when the incomming package ends
 
-        private byte[] buffer; // 
-
-        public Connection(Socket socket, List<Connection> connections) {
+        public Connection(Socket socket) {
+            Console.WriteLine("New connection");
             Socket = socket;
-            Connections = connections;
-            Id = IdHandler.NewId();
+            Receive();
         }
 
-        public void StartReceiving() {
+        /// <summary>
+        /// Begin listening for incomming packages
+        /// </summary>
+        private void Receive() {
             try {
-                buffer = new byte[4];
-                Socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, ReceiveCallback, null);
+                buffer = new byte[4]; // Set the buffer to a size of 4 (int32)
+                Socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, ReceiveCallback, null); // Listen for a package. Receive 4 bytes (buffer). Then run the AsyncCallback to handle the incomming package
             } catch {
 
             }
         }
 
+        /// <summary>
+        /// AsyncCallback that is run when a package has arrived
+        /// </summary>
         private void ReceiveCallback(IAsyncResult AR) {
             try {
-                // if bytes are less than 1 takes place when a client disconnect from the server.
-                // So we run the Disconnect function on the current client
                 if (Socket.EndReceive(AR) > 1) {
-                    // Convert the first 4 bytes (int 32) that we received and convert it to an Int32 (this is the size for the coming data).
-                    buffer = new byte[BitConverter.ToInt32(buffer, 0)];
-                    // Next receive this data into the buffer with size that we did receive before
-                    Socket.Receive(buffer, buffer.Length, SocketFlags.None);
-                    // When we received everything its onto you to convert it into the data that you've send.
-                    // For example string, int etc... in this example I only use the implementation for sending and receiving a string.
+                    buffer = new byte[BitConverter.ToInt32(buffer, 0)]; // Get the 4 first bytes from the incomming package and turn the value into a new byte array. The new byte array is the length of the rest of the incomming package
+                    Socket.Receive(buffer, buffer.Length, SocketFlags.None); // Receive the last of the package
 
-                    // Convert the bytes to string and output it in a message box
-                    string data = Encoding.Default.GetString(buffer);
-                    Console.WriteLine(data);
-                    // Now we have to start all over again with waiting for a data to come from the socket.
-                    StartReceiving();
+                    string data = Encoding.UTF8.GetString(buffer); // Turn the package of bytes into a string using the encoding UTF8
+
+
+
+                    Console.WriteLine("Received data: " + data); // The server should not write to the console but rather a window? or a file perhaps
+                    ConnectionManager.SyncMsg(this, data); // Currently any incomming message is send to any client connected to the server
+
+
+
+                    Receive(); // Start listening for new incomming packages
                 } else {
-                    Disconnect();
+                    Disconnect(); // If we didnt receive more than one byte then the client disconnected
                 }
             } catch {
-                // if exeption is throw check if socket is connected because than you can startrecieve again else Disconnect
                 if (!Socket.Connected) {
-                    Disconnect();
+                    Disconnect(); // Disconnect this socket if the client disconnected
                 } else {
-                    StartReceiving();
+                    Receive(); // If the client didnt disconnect then try listening for a new package
                 }
             }
         }
 
+        /// <summary>
+        /// Disconnect the socket and remove it from the list of active connections
+        /// </summary>
         private void Disconnect() {
-            Socket.Disconnect(true);
-            Connections.Remove(this); // does this work? or do i need to remove by the id
+            Socket.Shutdown(SocketShutdown.Both);
+            Socket.Close();
+            ConnectionManager.Connections.Remove(this);
+            Console.WriteLine("Client disconnected");
+        }
+
+        /// <summary>
+        /// Take a string and encode it to finally send it over the socket
+        /// </summary>
+        public void Send(string data) {
+            try {
+                List<byte> fullPacket = new List<byte>(); // Using a list to easier add onto the array
+                byte[] package = Encoding.UTF8.GetBytes(data); // Get the string as a byte array
+                fullPacket.AddRange(BitConverter.GetBytes(package.Length)); // Get the length of the package in bytes and add it to the list
+                fullPacket.AddRange(package); // Now add the actual package to the list
+                Socket.Send(fullPacket.ToArray()); // Send the list to the socket as an array
+            } catch (Exception ex) {
+                Console.WriteLine("Error " + ex);
+            }
         }
     }
 }
